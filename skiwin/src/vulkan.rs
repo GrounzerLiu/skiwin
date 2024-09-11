@@ -19,18 +19,16 @@ use winit::window::Window;
 pub struct VulkanSkiaWindow {
     skia_context: DirectContext,
     skia_surface: Surface,
-    vk_graphics: VkGraphics,
-    soft_buffer_context: softbuffer::Context<Arc<Window>>,
+    _vulkan_context: VulkanContext,
     soft_buffer_surface: softbuffer::Surface<Arc<Window>, Arc<Window>>,
-    size: ISize,
 }
 
 impl VulkanSkiaWindow {
     pub fn new(window: Window) -> Self {
-        let vk_graphics = VkGraphics::new("skia-org");
+        let vulkan_context = VulkanContext::new(window.title().as_str());
         let mut skia_context = {
             let get_proc = |of| unsafe {
-                match vk_graphics.get_proc(of) {
+                match vulkan_context.get_proc(of) {
                     Some(f) => f as _,
                     None => {
                         println!("resolve of {} failed", of.name().to_str().unwrap());
@@ -41,12 +39,12 @@ impl VulkanSkiaWindow {
 
             let backend_context = unsafe {
                 BackendContext::new(
-                    vk_graphics.instance.handle().as_raw() as _,
-                    vk_graphics.physical_device.handle().as_raw() as _,
-                    vk_graphics.device.handle().as_raw() as _,
+                    vulkan_context.instance.handle().as_raw() as _,
+                    vulkan_context.physical_device.handle().as_raw() as _,
+                    vulkan_context.device.handle().as_raw() as _,
                     (
-                        vk_graphics.queue_and_index.0.handle().as_raw() as _,
-                        vk_graphics.queue_and_index.1,
+                        vulkan_context.queue_and_index.0.handle().as_raw() as _,
+                        vulkan_context.queue_and_index.1,
                     ),
                     &get_proc,
                 )
@@ -56,24 +54,22 @@ impl VulkanSkiaWindow {
         };
 
         let window = Arc::new(window);
-        let skia_surface = create_surface(&mut skia_context, window.inner_size());
+        let size = window.inner_size();
+        let skia_surface = create_surface(&mut skia_context, size);
         let soft_buffer_context = softbuffer::Context::new(window.clone()).unwrap();
         let soft_buffer_surface = softbuffer::Surface::new(&soft_buffer_context, window).unwrap();
 
         Self {
             skia_context,
             skia_surface,
-            vk_graphics,
-            soft_buffer_context,
+            _vulkan_context: vulkan_context,
             soft_buffer_surface,
-            size: Default::default(),
         }
     }
-
 }
 
 
-fn create_surface(skia_context:&mut DirectContext, size: impl Into<PhysicalSize<u32>>) -> Surface {
+fn create_surface(skia_context: &mut DirectContext, size: impl Into<PhysicalSize<u32>>) -> Surface {
     let size = size.into();
     let width = size.width;
     let height = size.height;
@@ -92,14 +88,51 @@ fn create_surface(skia_context:&mut DirectContext, size: impl Into<PhysicalSize<
 }
 
 impl SkiaWindow for VulkanSkiaWindow {
-    fn resize(&mut self, size: PhysicalSize<u32>) -> Result<(), SoftBufferError> {
+    // fn resumed(&mut self) {
+    //     let vulkan_context = VulkanContext::new(self.soft_buffer_surface.window().title().as_str());
+    //     let mut skia_context = {
+    //         let get_proc = |of| unsafe {
+    //             match vulkan_context.get_proc(of) {
+    //                 Some(f) => f as _,
+    //                 None => {
+    //                     println!("resolve of {} failed", of.name().to_str().unwrap());
+    //                     ptr::null()
+    //                 }
+    //             }
+    //         };
+    // 
+    //         let backend_context = unsafe {
+    //             BackendContext::new(
+    //                 vulkan_context.instance.handle().as_raw() as _,
+    //                 vulkan_context.physical_device.handle().as_raw() as _,
+    //                 vulkan_context.device.handle().as_raw() as _,
+    //                 (
+    //                     vulkan_context.queue_and_index.0.handle().as_raw() as _,
+    //                     vulkan_context.queue_and_index.1,
+    //                 ),
+    //                 &get_proc,
+    //             )
+    //         };
+    // 
+    //         skia_safe::gpu::direct_contexts::make_vulkan(&backend_context, None).unwrap()
+    //     };
+    //     let size = self.soft_buffer_surface.window().inner_size();
+    //     let width = NonZeroU32::new(size.width).unwrap();
+    //     let height = NonZeroU32::new(size.height).unwrap();
+    //     self.skia_context = skia_context;
+    //     self._vulkan_context = vulkan_context;
+    //     self.skia_surface = create_surface(&mut self.skia_context,  size);
+    //     self.soft_buffer_surface.resize(width, height).unwrap();
+    // }
+
+    fn resize(&mut self) -> Result<(), SoftBufferError> {
+        let size = self.soft_buffer_surface.window().inner_size();
         let width = NonZeroU32::new(size.width).unwrap();
         let height = NonZeroU32::new(size.height).unwrap();
         let result = self.soft_buffer_surface.resize(width, height);
         match result {
             Ok(_) => {
                 self.skia_surface = create_surface(&mut self.skia_context, size);
-                self.size = ISize::new(size.width as i32, size.height as i32);
                 Ok(())
             }
             Err(e) => {
@@ -113,13 +146,14 @@ impl SkiaWindow for VulkanSkiaWindow {
     }
 
     fn present(&mut self) {
+        let size = self.soft_buffer_surface.window().inner_size();
         let mut soft_buffer = self.soft_buffer_surface.buffer_mut().unwrap();
         let u8_slice = bytemuck::cast_slice_mut::<u32, u8>(&mut soft_buffer);
-        let image_info = ImageInfo::new_n32_premul((self.size.width, self.size.height), None);
+        let image_info = ImageInfo::new_n32_premul((size.width as i32, size.height as i32), None);
         self.skia_surface.read_pixels(
             &image_info,
             u8_slice,
-            self.size.width as usize * 4,
+            size.width as usize * 4,
             (0, 0),
         );
         soft_buffer.present().unwrap();
@@ -140,7 +174,7 @@ impl AsRef<Window> for VulkanSkiaWindow {
     }
 }
 
-pub struct VkGraphics {
+pub struct VulkanContext {
     pub vulkan_library: Arc<VulkanLibrary>,
     pub instance: Arc<Instance>,
     pub physical_device: Arc<PhysicalDevice>,
@@ -148,21 +182,23 @@ pub struct VkGraphics {
     pub queue_and_index: (Arc<Queue>, usize),
 }
 
-// most code copied from here: https://github.com/MaikKlein/ash/blob/master/examples/src/lib.rs
-impl VkGraphics {
-    pub fn new(app_name: &str) -> VkGraphics {
+impl VulkanContext {
+    pub fn new(app_name: &str) -> Self {
         let vulkan_library = VulkanLibrary::new().unwrap();
 
         let instance: Arc<Instance> = {
-            let mut instance_extensions = InstanceExtensions::default();
-            instance_extensions.khr_get_display_properties2 = true;
-            instance_extensions.khr_portability_enumeration = true;
+            let instance_extensions = InstanceExtensions {
+                khr_get_physical_device_properties2: true,
+                khr_portability_enumeration: true,
+                ..Default::default()
+            };
 
-            let mut create_info = InstanceCreateInfo::default();
-            create_info.engine_name = Some(app_name.to_string());
-            create_info.engine_name = Some(app_name.to_string());
-            create_info.enabled_extensions = instance_extensions;
-            create_info.flags = InstanceCreateFlags::ENUMERATE_PORTABILITY;
+            let create_info = InstanceCreateInfo {
+                engine_name: Some(app_name.to_string()),
+                enabled_extensions: instance_extensions,
+                flags: InstanceCreateFlags::ENUMERATE_PORTABILITY,
+                ..Default::default()
+            };
 
             Instance::new(vulkan_library.clone(), create_info).unwrap()
         };
@@ -184,6 +220,7 @@ impl VkGraphics {
                 .find_map(|v| {
                     if let Some((physical_device, queue_family_index)) = &v {
                         let properties = physical_device.properties();
+                        #[cfg(debug_assertions)]
                         println!("Found suitable device: {:?}, index: {}", properties.device_name, queue_family_index);
                     }
                     v
@@ -193,12 +230,15 @@ impl VkGraphics {
         };
 
         let (device, queues) = {
-            let mut queue_create_info = QueueCreateInfo::default();
-            queue_create_info.queue_family_index = queue_family_index as _;
+            let queue_create_info = QueueCreateInfo {
+                queue_family_index: queue_family_index as _,
+                ..Default::default()
+            };
 
-            let mut device_create_info = DeviceCreateInfo::default();
-            device_create_info.queue_create_infos = vec![queue_create_info];
-
+            let device_create_info = DeviceCreateInfo {
+                queue_create_infos: vec![queue_create_info],
+                ..Default::default()
+            };
 
             Device::new(physical_device.clone(), device_create_info).unwrap()
         };
@@ -206,7 +246,7 @@ impl VkGraphics {
         let queue_index = 0;
         let (_, queue) = queues.enumerate().nth(queue_index).unwrap();
 
-        VkGraphics {
+        Self {
             vulkan_library,
             instance,
             physical_device,

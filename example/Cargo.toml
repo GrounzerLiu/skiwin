@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-skiwin = { path = "../skiwin", features = ["vulkan"]}
+skiwin = { path = "../skiwin", features = ["vulkan","gl"]}
 winit = "0.30.5"
 skia-safe = "0.78.0"

@@ -5,6 +5,8 @@ use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
+use skiwin::cpu::SoftSkiaWindow;
+use skiwin::gl::GlWindow;
 
 #[derive(Default)]
 struct App {
@@ -13,9 +15,14 @@ struct App {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let window = event_loop.create_window(Window::default_attributes()).unwrap();
-        let window = VulkanSkiaWindow::new(window);
-        self.window = Some(Box::new(window));
+        println!("Resumed");
+        if self.window.is_none() {
+            let window = event_loop.create_window(Window::default_attributes()).unwrap();
+            let window = GlWindow::new(window);
+            self.window = Some(Box::new(window));
+        }/*else {
+            self.window.as_mut().unwrap().resumed();
+        }*/
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -25,7 +32,7 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::Resized(size) => {
-                self.window.as_mut().unwrap().resize(size).unwrap();
+                self.window.as_mut().unwrap().resize().unwrap();
             }
             WindowEvent::RedrawRequested => {
                 let window = self.window.as_mut().unwrap();
@@ -44,6 +51,9 @@ impl ApplicationHandler for App {
             }
             _ => (),
         }
+    }
+    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+        println!("Suspended");
     }
 }
 
