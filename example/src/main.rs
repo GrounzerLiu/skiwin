@@ -7,6 +7,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 use skiwin::cpu::SoftSkiaWindow;
 use skiwin::gl::GlWindow;
+use skiwin::vulkano::device::physical::PhysicalDeviceType;
 
 #[derive(Default)]
 struct App {
@@ -18,7 +19,13 @@ impl ApplicationHandler for App {
         println!("Resumed");
         if self.window.is_none() {
             let window = event_loop.create_window(Window::default_attributes()).unwrap();
-            let window = GlWindow::new(window);
+            let window = VulkanSkiaWindow::new(window, Some(Box::new(|device| {
+                let properties = device.properties();
+                if properties.device_type == PhysicalDeviceType::IntegratedGpu {
+                    return true;
+                }
+                false
+            })));
             self.window = Some(Box::new(window));
         }/*else {
             self.window.as_mut().unwrap().resumed();
@@ -31,7 +38,7 @@ impl ApplicationHandler for App {
                 println!("The close button was pressed; stopping");
                 event_loop.exit();
             }
-            WindowEvent::Resized(size) => {
+            WindowEvent::Resized(_size) => {
                 self.window.as_mut().unwrap().resize().unwrap();
             }
             WindowEvent::RedrawRequested => {
@@ -51,9 +58,6 @@ impl ApplicationHandler for App {
             }
             _ => (),
         }
-    }
-    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
-        println!("Suspended");
     }
 }
 

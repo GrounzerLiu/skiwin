@@ -15,7 +15,7 @@ use glutin::api::egl::{device::Device, display::Display};
 use glutin::api::wgl::{device::Device, display::Display};
 use glutin::context::{ContextApi, ContextAttributesBuilder, PossiblyCurrentGlContext};
 use softbuffer::SoftBufferError;
-use crate::{create_surface, SkiaWindow};
+use crate::{create_surface, impl_skia_window, SkiaWindow};
 
 pub struct GlWindow {
     skia_context: DirectContext,
@@ -24,23 +24,24 @@ pub struct GlWindow {
 }
 
 impl GlWindow {
-    pub fn new(window: Window) -> Self {
+    pub fn new(window: Window, device_selector: Option<Box<dyn Fn(&Device) -> bool>>) -> Self {
         let devices = Device::query_devices().expect("Failed to query devices").collect::<Vec<_>>();
 
-        for (index, device) in devices.iter().enumerate() {
-            println!(
-                "Device {}: Name: {} Vendor: {}",
-                index,
-                device.name().unwrap_or("UNKNOWN"),
-                device.vendor().unwrap_or("UNKNOWN")
-            );
-        }
+        // for (index, device) in devices.iter().enumerate() {
+        //     device.extensions().iter().for_each(|ext| {
+        //         println!("Device {}: Extension: {}", index, ext);
+        //     });
+        // }
 
-        let device = devices.first().expect("No available devices");
+        let device = if let Some(selector) = device_selector {
+            devices.into_iter().find(|device| selector(device))
+        }else { 
+            devices.into_iter().next()
+        }.expect("No device found");
 
         // Create a display using the device.
         let display =
-            unsafe { Display::with_device(device, None) }.expect("Failed to create display");
+            unsafe { Display::with_device(&device, None) }.expect("Failed to create display");
 
         let template = config_template();
         let config = unsafe { display.find_configs(template) }
@@ -102,55 +103,7 @@ impl GlWindow {
     }
 }
 
-impl SkiaWindow for GlWindow {
-    fn resize(&mut self) -> Result<(), SoftBufferError> {
-        let size = self.soft_buffer_surface.window().inner_size();
-        let width = NonZeroU32::new(size.width).unwrap();
-        let height = NonZeroU32::new(size.height).unwrap();
-        let result = self.soft_buffer_surface.resize(width, height);
-        match result {
-            Ok(_) => {
-                self.skia_surface = create_surface(&mut self.skia_context, size);
-                Ok(())
-            }
-            Err(e) => {
-                Err(e)
-            }
-        }
-    }
-
-    fn surface(&mut self) -> &mut Surface {
-        &mut self.skia_surface
-    }
-
-    fn present(&mut self) {
-        let size = self.soft_buffer_surface.window().inner_size();
-        let mut soft_buffer = self.soft_buffer_surface.buffer_mut().unwrap();
-        let u8_slice = bytemuck::cast_slice_mut::<u32, u8>(&mut soft_buffer);
-        let image_info = ImageInfo::new_n32_premul((size.width as i32, size.height as i32), None);
-        self.skia_surface.read_pixels(
-            &image_info,
-            u8_slice,
-            size.width as usize * 4,
-            (0, 0),
-        );
-        soft_buffer.present().unwrap();
-    }
-}
-
-impl Deref for GlWindow {
-    type Target = Window;
-
-    fn deref(&self) -> &Self::Target {
-        self.soft_buffer_surface.window()
-    }
-}
-
-impl AsRef<Window> for GlWindow {
-    fn as_ref(&self) -> &Window {
-        self.soft_buffer_surface.window()
-    }
-}
+impl_skia_window!(GlWindow);
 
 fn config_template() -> ConfigTemplate {
     ConfigTemplateBuilder::default()

@@ -34,9 +34,6 @@ impl SoftSkiaWindow {
 }
 
 impl SkiaWindow for SoftSkiaWindow {
-    // fn resumed(&mut self) {
-    //     
-    // }
 
     fn resize(&mut self) -> Result<(), SoftBufferError> {
         let size = self.soft_buffer_surface.window().inner_size();
